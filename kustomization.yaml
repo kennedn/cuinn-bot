@@ -1,0 +1,12 @@
+resources:
+  - deployment.yaml
+
+namespace: default
+
+configMapGenerator:
+- name: lore-bot-env
+  behavior: create
+  options:
+        disableNameSuffixHash: true
+  env: "config/config.properties"
+

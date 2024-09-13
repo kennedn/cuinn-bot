@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cuinn-bot
+spec:
+  selector: 
+    matchLabels:
+      app: cuinn-bot
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: cuinn-bot
+    spec:
+      containers:
+      - image: quay.io/kennedn/cuinn-bot:latest
+        name: cuinn-bot
+        workingDir: /usr/src/app
+        command: ["python"]
+        args: ["-u", "cuinn-bot.py"]
+        env:
+        - name: DISCORD_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: cuinn-bot-env
+              key: DISCORD_TOKEN
