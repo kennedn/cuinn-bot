@@ -4,7 +4,7 @@ resources:
 namespace: default
 
 configMapGenerator:
-- name: lore-bot-env
+- name: cuinn-bot-env
   behavior: create
   options:
         disableNameSuffixHash: true
