@@ -7,7 +7,9 @@ from discord.ext import commands
 from discord import Intents, Embed
 
 token = os.getenv('DISCORD_TOKEN')
-bot = commands.Bot(command_prefix='.', intents=Intents.default())
+intents = Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='.', intents=intents)
 #shit-posting,#planning,#hill-climbing
 target_channel_ids=[991028345561042979,1082273403282665534,991028345561042980]
 

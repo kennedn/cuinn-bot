@@ -8,6 +8,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": "true",
+            "envFile": "${workspaceFolder}/config/config.properties",
             "args": []
         }
     ]
