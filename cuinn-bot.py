@@ -1,7 +1,7 @@
-# cuinn-bot.py
-
 import os
 import random
+import logging
+import sys
 
 import discord
 from discord.ext import commands
@@ -13,6 +13,7 @@ from openai import AsyncOpenAI
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 MAX_CONTEXT_MESSAGES = int(os.getenv("MAX_CONTEXT_MESSAGES", 10))
+WAKE_WINDOW_SECONDS = int(os.getenv("WAKE_WINDOW_SECONDS", 180))
 
 RAMALAMA_URL = os.getenv(
     "RAMALAMA_URL",
@@ -20,10 +21,10 @@ RAMALAMA_URL = os.getenv(
 )
 
 TARGET_CHANNEL_IDS = [
-    991028345561042979,  # shitposting
-    1082273403282665534, # hill walking
-    991028345561042980, # business planning
-    1023199903360499842 # dog sfx
+    991028345561042979,   # shitposting
+    1082273403282665534,  # hill walking
+    991028345561042980,   # business planning
+    1023199903360499842   # dog sfx
 ]
 
 SYSTEM_PROMPT = """
@@ -70,7 +71,31 @@ FALLBACK_RESPONSES = [
     "Ugh, mate, I’ve had a few too many to think straight. Give me a snack, and we’ll talk about it later."
 ]
 
+# =========================
+# LOGGING SETUP
+# =========================
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
+
+logger = logging.getLogger("cuinn-bot")
+
+# =========================
+# STATE
+# =========================
+
+active_until_by_channel = {}
+
+# =========================
 # DISCORD SETUP
+# =========================
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -80,14 +105,30 @@ bot = commands.Bot(
     intents=intents
 )
 
+# =========================
 # OPENAI CLIENT
+# =========================
 
 client = AsyncOpenAI(
     base_url=RAMALAMA_URL,
     api_key="not-needed"
 )
 
-# MODEL FUNCTION
+# =========================
+# WAKE WINDOW
+# =========================
+
+def is_cuinn_awake(channel_id, now_ts):
+    return active_until_by_channel.get(channel_id, 0) > now_ts
+
+
+def wake_cuinn(channel_id, now_ts):
+    active_until_by_channel[channel_id] = now_ts + WAKE_WINDOW_SECONDS
+
+
+# =========================
+# MODEL HELPERS
+# =========================
 
 async def get_recent_context(channel, current_message_id):
     context = []
@@ -108,8 +149,8 @@ async def get_recent_context(channel, current_message_id):
         )
 
     context.reverse()
-
     return "\n".join(context)
+
 
 async def get_model():
     models = await client.models.list()
@@ -118,6 +159,45 @@ async def get_model():
         raise RuntimeError("No models available from RamaLama")
 
     return models.data[0].id
+
+
+async def should_cuinn_reply(message_content, author_name, recent_context):
+    model_id = await get_model()
+
+    completion = await client.chat.completions.create(
+        model=model_id,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You decide whether Cuinn, a chaotic border collie in a Discord server, "
+                    "should reply to the current message. Reply only YES or NO. "
+                    "Say YES if the message naturally invites a short dog-like interjection, "
+                    "continues the conversation, argues with Cuinn, asks something, or is funny to react to. "
+                    "Say NO if replying would be annoying, forced, repetitive, or interrupting."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "/no_think\n"
+                    f"Recent Discord context:\n{recent_context or '(no recent context)'}\n\n"
+                    f"Current message:\n{author_name}: {message_content}"
+                ),
+            },
+        ],
+        temperature=0.1,
+        top_p=0.8,
+        max_tokens=80,
+    )
+
+    reply = completion.choices[0].message.content
+
+    if reply is None:
+        return False
+
+    return reply.strip().upper().startswith("YES")
+
 
 async def ask_cuinn(message_content, author_name, recent_context):
     if not message_content.strip():
@@ -140,18 +220,20 @@ async def ask_cuinn(message_content, author_name, recent_context):
                     f"{recent_context or '(no recent context)'}\n\n"
                     "Current message:\n"
                     f"{author_name}: {message_content}\n\n"
-                    "Reply as Cuinn. Output only your reply, respond directly to the current message. Do not include author name or any formatting outside your reply."
+                    "Reply as Cuinn. Output only your reply. "
+                    "Respond directly to the current message. "
+                    "Do not include author name or formatting outside your reply."
                 ),
             },
         ],
         temperature=0.7,
         top_p=0.9,
-        max_tokens=500,
+        max_tokens=150,
         frequency_penalty=0.8,
         presence_penalty=0.3,
     )
 
-    print(f"RAW COMPLETION: {completion}")
+    logger.debug("Raw completion: %s", completion)
 
     reply = completion.choices[0].message.content
 
@@ -165,30 +247,56 @@ async def ask_cuinn(message_content, author_name, recent_context):
 
     return reply
 
+
+# =========================
 # EVENTS
+# =========================
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    logger.info("Logged in as %s", bot.user)
+
 
 @bot.event
 async def on_message(message):
-    # Ignore self
     if message.author == bot.user:
         return
 
-    # Ignore non-target channels
     if message.channel.id not in TARGET_CHANNEL_IDS:
         return
 
+    if not message.content.strip():
+        return
+
+    now_ts = message.created_at.timestamp()
     content = message.content.lower()
 
-    triggered = (
+    keyword_triggered = (
         bot.user.mentioned_in(message)
         or "cuinn" in content
         or "pissboy" in content
         or "dog" in content
     )
+
+    recent_context = await get_recent_context(message.channel, message.id)
+
+    if keyword_triggered:
+        wake_cuinn(message.channel.id, now_ts)
+        triggered = True
+
+    elif is_cuinn_awake(message.channel.id, now_ts):
+        try:
+            triggered = await should_cuinn_reply(
+                message.content,
+                message.author.display_name,
+                recent_context
+            )
+        except Exception as e:
+            logger.exception("Gate error: %s", e)
+            triggered = False
+
+    else:
+        triggered = False
 
     if triggered:
         async with message.channel.typing():
@@ -196,11 +304,10 @@ async def on_message(message):
                 reply = await ask_cuinn(
                     message.content,
                     message.author.display_name,
-                    await get_recent_context(message.channel, message.id)
+                    recent_context
                 )
-
             except Exception as e:
-                print(f"Model error: {e}")
+                logger.exception("Model error: %s", e)
                 reply = random.choice(FALLBACK_RESPONSES)
 
         if not reply or not reply.strip():
@@ -211,10 +318,14 @@ async def on_message(message):
                 reply,
                 mention_author=False
             )
+            wake_cuinn(message.channel.id, now_ts)
+
         except discord.HTTPException as e:
-            print(f"Discord send error: {e}")
+            logger.exception("Discord send error: %s", e)
             await message.channel.send(random.choice(FALLBACK_RESPONSES))
+            wake_cuinn(message.channel.id, now_ts)
 
     await bot.process_commands(message)
+
 
 bot.run(DISCORD_TOKEN)
