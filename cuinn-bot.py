@@ -276,6 +276,7 @@ async def on_message(message):
         or "cuinn" in content
         or "pissboy" in content
         or "dog" in content
+        or "rat" in content
     )
 
     recent_context = await get_recent_context(message.channel, message.id)
