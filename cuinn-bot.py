@@ -23,7 +23,7 @@ RAMALAMA_URL = os.getenv(
 TARGET_CHANNEL_IDS = [
     991028345561042979,   # shitposting
     1082273403282665534,  # hill walking
-    991028345561042980,   # business planning
+    # 991028345561042980,   # business planning
     1023199903360499842   # dog sfx
 ]
 
