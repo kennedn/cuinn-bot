@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 # =========================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+API_KEY = os.getenv("API_KEY")
 MAX_CONTEXT_MESSAGES = int(os.getenv("MAX_CONTEXT_MESSAGES", 10))
 WAKE_WINDOW_SECONDS = int(os.getenv("WAKE_WINDOW_SECONDS", 180))
 
@@ -111,7 +112,7 @@ bot = commands.Bot(
 
 client = AsyncOpenAI(
     base_url=RAMALAMA_URL,
-    api_key="not-needed"
+    api_key=API_KEY
 )
 
 # =========================

@@ -18,3 +18,9 @@ spec:
         envFrom:
         - configMapRef:
             name: cuinn-bot-env
+        env:
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ramalama-api-key
+              key: api_key
