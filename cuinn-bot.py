@@ -13,7 +13,7 @@ from openai import AsyncOpenAI
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 API_KEY = os.getenv("API_KEY")
-MAX_CONTEXT_MESSAGES = int(os.getenv("MAX_CONTEXT_MESSAGES", 10))
+MAX_CONTEXT_MESSAGES = int(os.getenv("MAX_CONTEXT_MESSAGES", 6))
 WAKE_WINDOW_SECONDS = int(os.getenv("WAKE_WINDOW_SECONDS", 180))
 
 RAMALAMA_URL = os.getenv(
@@ -52,6 +52,11 @@ Style rules:
 - Do not be cringy.
 - Never say you are an AI assistant.
 - Never break character.
+
+Specific User context:
+
+kennedn (aliases josh, skelldon): kennedn is your owner. But he receives no special treatment from you.
+Dan96715 (aliases daniel, danny): Dan96715 is a city slicker, and it annoys him if you bring it up, so you should do so at every applicable opportunity.
 """
 
 FALLBACK_RESPONSES = [
@@ -93,6 +98,14 @@ logger = logging.getLogger("cuinn-bot")
 # =========================
 
 active_until_by_channel = {}
+model_id = None
+
+TRIGGER_WORDS = {
+    "cuinn",
+    "pissboy",
+    "dog",
+    "rat",
+}
 
 # =========================
 # DISCORD SETUP
@@ -131,12 +144,11 @@ def wake_cuinn(channel_id, now_ts):
 # MODEL HELPERS
 # =========================
 
-async def get_recent_context(channel, current_message_id):
+async def get_recent_context(channel):
     context = []
 
     async for msg in channel.history(
         limit=MAX_CONTEXT_MESSAGES + 1,
-        before=discord.Object(id=current_message_id),
         oldest_first=False,
     ):
         if msg.author.bot:
@@ -154,50 +166,18 @@ async def get_recent_context(channel, current_message_id):
 
 
 async def get_model():
+    global model_id
+
+    if model_id is not None:
+        return model_id
+
     models = await client.models.list()
 
     if not models.data:
         raise RuntimeError("No models available from RamaLama")
 
-    return models.data[0].id
-
-
-async def should_cuinn_reply(message_content, author_name, recent_context):
-    model_id = await get_model()
-
-    completion = await client.chat.completions.create(
-        model=model_id,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You decide whether Cuinn, a chaotic border collie in a Discord server, "
-                    "should reply to the current message. Reply only YES or NO. "
-                    "Say YES if the message naturally invites a short dog-like interjection, "
-                    "continues the conversation, argues with Cuinn, asks something, or is funny to react to. "
-                    "Say NO if replying would be annoying, forced, repetitive, or interrupting."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "/no_think\n"
-                    f"Recent Discord context:\n{recent_context or '(no recent context)'}\n\n"
-                    f"Current message:\n{author_name}: {message_content}"
-                ),
-            },
-        ],
-        temperature=0.1,
-        top_p=0.8,
-        max_tokens=80,
-    )
-
-    reply = completion.choices[0].message.content
-
-    if reply is None:
-        return False
-
-    return reply.strip().upper().startswith("YES")
+    model_id = models.data[0].id
+    return model_id
 
 
 async def ask_cuinn(message_content, author_name, recent_context):
@@ -205,28 +185,28 @@ async def ask_cuinn(message_content, author_name, recent_context):
         raise RuntimeError("Message content was empty after cleaning")
 
     model_id = await get_model()
+    
+    messages=[
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role": "user",
+            "content": (
+                "/no_think\n"
+                "Conversation:\n"
+                f"{recent_context or '(no recent context)'}\n\n"
+                "Reply as Cuinn to the final message."
+            ),
+        },
+    ]
+    
+    logger.debug("Raw Messages: %s", messages)
 
     completion = await client.chat.completions.create(
         model=model_id,
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": (
-                    "/no_think\n"
-                    "Recent Discord context:\n"
-                    f"{recent_context or '(no recent context)'}\n\n"
-                    "Current message:\n"
-                    f"{author_name}: {message_content}\n\n"
-                    "Reply as Cuinn. Output only your reply. "
-                    "Respond directly to the current message. "
-                    "Do not include author name or formatting outside your reply."
-                ),
-            },
-        ],
+        messages=messages,
         temperature=0.7,
         top_p=0.9,
         max_tokens=150,
@@ -272,35 +252,14 @@ async def on_message(message):
     now_ts = message.created_at.timestamp()
     content = message.content.lower()
 
-    keyword_triggered = (
-        bot.user.mentioned_in(message)
-        or "cuinn" in content
-        or "pissboy" in content
-        or "dog" in content
-        or "rat" in content
+    keyword_triggered = bot.user.mentioned_in(message) or any(
+        word in content for word in TRIGGER_WORDS
     )
-
-    recent_context = await get_recent_context(message.channel, message.id)
-
-    if keyword_triggered:
-        wake_cuinn(message.channel.id, now_ts)
-        triggered = True
-
-    elif is_cuinn_awake(message.channel.id, now_ts):
-        try:
-            triggered = await should_cuinn_reply(
-                message.content,
-                message.author.display_name,
-                recent_context
-            )
-        except Exception as e:
-            logger.exception("Gate error: %s", e)
-            triggered = False
-
-    else:
-        triggered = False
+    triggered = keyword_triggered or is_cuinn_awake(message.channel.id, now_ts)
 
     if triggered:
+        recent_context = await get_recent_context(message.channel)
+
         async with message.channel.typing():
             try:
                 reply = await ask_cuinn(

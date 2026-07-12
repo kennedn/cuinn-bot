@@ -53,6 +53,6 @@ kubectl apply -k .
 Configuration is managed via `config/config.properties`. The following variables are available:
 
 - `DISCORD_TOKEN` (required): Your Discord bot token
-- `MAX_CONTEXT_MESSAGES` (optional, default: 10): Maximum number of context messages to keep in memory
+- `MAX_CONTEXT_MESSAGES` (optional, default: 6): Maximum number of context messages to keep in memory
 - `WAKE_WINDOW_SECONDS` (optional, default: 180): Time window for the bot to stay active after being mentioned
 - `RAMALAMA_URL` (optional, default: `http://127.0.0.1:8080/v1`): URL for the Ramalama API
