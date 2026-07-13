@@ -230,6 +230,10 @@ async def ask_cuinn(message_content, author_name, recent_context, additional_con
                 "/no_think\n"
                 "Relevant character context:\n"
                 f"{additional_context}\n\n"
+                "Conversation history follows.\n"
+                "Cuinn's previous replies are included only for factual continuity.\n"
+                "Do not imitate their wording, sentence structure, insults, openings, or endings.\n"
+                "Do not begin by repeating the user's words as a question.\n"
                 "Conversation:\n"
                 f"{recent_context or '(no recent context)'}\n\n"
                 "Reply as Cuinn to the final message."
@@ -242,11 +246,11 @@ async def ask_cuinn(message_content, author_name, recent_context, additional_con
     completion = await client.chat.completions.create(
         model=model_id,
         messages=messages,
-        temperature=0.6,
-        top_p=0.85,
-        frequency_penalty=1.2,
-        presence_penalty=0.3,
+        temperature=0.7,
+        top_p=0.9,
         max_tokens=150,
+        frequency_penalty=0.8,
+        presence_penalty=0.3,
     )
 
     logger.debug("Raw completion: %s", completion)
