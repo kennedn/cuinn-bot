@@ -28,6 +28,28 @@ TARGET_CHANNEL_IDS = [
     1023199903360499842   # dog sfx
 ]
 
+import re
+
+
+CONTEXT_INJECTION_RULES = [
+    {
+        "terms": ["danny", "daniel", "dan96715"],
+        "context": (
+            "Dan96715, also known as Daniel or Danny, is a city slicker. "
+            "Only Daniel should be called a city slicker. "
+            "Do not apply this description to anyone else."
+        ),
+    },
+    {
+        "terms": ["josh", "kennedn", "skelldon"],
+        "context": (
+            "kennedn, also known as Josh or skelldon, is Cuinn's owner. "
+            "He receives no special treatment."
+        ),
+    },
+]
+
+
 SYSTEM_PROMPT = """
 You are Cuinn.
 
@@ -52,11 +74,6 @@ Style rules:
 - Do not be cringy.
 - Never say you are an AI assistant.
 - Never break character.
-
-Specific User context:
-
-kennedn (aliases josh, skelldon): kennedn is your owner. But he receives no special treatment from you.
-Dan96715 (aliases daniel, danny): Dan96715 is a city slicker, and it annoys him if you bring it up, so you should do so at every applicable opportunity.
 """
 
 FALLBACK_RESPONSES = [
@@ -151,8 +168,6 @@ async def get_recent_context(channel):
         limit=MAX_CONTEXT_MESSAGES + 1,
         oldest_first=False,
     ):
-        if msg.author.bot:
-            continue
 
         if not msg.content.strip():
             continue
@@ -163,6 +178,25 @@ async def get_recent_context(channel):
 
     context.reverse()
     return "\n".join(context)
+
+def get_relevant_context_injections(recent_context):
+    injections = []
+    normalized_context = recent_context.casefold()
+
+    for rule in CONTEXT_INJECTION_RULES:
+        matched = any(
+            re.search(
+                rf"\b{re.escape(term.casefold())}\b",
+                normalized_context,
+            )
+            for term in rule["terms"]
+        )
+
+        if matched:
+            injections.append(rule["context"])
+
+    return injections
+
 
 
 async def get_model():
@@ -180,7 +214,7 @@ async def get_model():
     return model_id
 
 
-async def ask_cuinn(message_content, author_name, recent_context):
+async def ask_cuinn(message_content, author_name, recent_context, additional_context):
     if not message_content.strip():
         raise RuntimeError("Message content was empty after cleaning")
 
@@ -195,6 +229,8 @@ async def ask_cuinn(message_content, author_name, recent_context):
             "role": "user",
             "content": (
                 "/no_think\n"
+                "Relevant character context:\n"
+                f"{additional_context}\n\n"
                 "Conversation:\n"
                 f"{recent_context or '(no recent context)'}\n\n"
                 "Reply as Cuinn to the final message."
@@ -259,13 +295,22 @@ async def on_message(message):
 
     if triggered:
         recent_context = await get_recent_context(message.channel)
+        
+        injections = get_relevant_context_injections(recent_context)
+
+        additional_context = (
+            "\n".join(f"- {item}" for item in injections)
+            if injections
+            else "(none)"
+        )
 
         async with message.channel.typing():
             try:
                 reply = await ask_cuinn(
                     message.content,
                     message.author.display_name,
-                    recent_context
+                    recent_context,
+                    additional_context
                 )
             except Exception as e:
                 logger.exception("Model error: %s", e)
