@@ -245,8 +245,8 @@ async def ask_cuinn(message_content, author_name, recent_context, additional_con
         temperature=0.7,
         top_p=0.9,
         max_tokens=150,
-        frequency_penalty=0.8,
-        presence_penalty=0.3,
+        frequency_penalty=1.4,
+        presence_penalty=0.5,
     )
 
     logger.debug("Raw completion: %s", completion)
