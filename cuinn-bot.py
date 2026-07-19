@@ -167,6 +167,8 @@ async def get_recent_context(channel):
         limit=MAX_CONTEXT_MESSAGES + 1,
         oldest_first=False,
     ):
+        if msg.author == bot.user:
+            continue
 
         if not msg.content.strip():
             continue
